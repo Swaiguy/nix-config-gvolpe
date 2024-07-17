@@ -1,0 +1,437 @@
+#!/nix/store/agkxax48k35wdmkhmmija2i2sxg8i7ny-bash-5.2p26/bin/bash
+set -eu
+set -o pipefail
+
+cd $HOME
+
+export PATH="/nix/store/agkxax48k35wdmkhmmija2i2sxg8i7ny-bash-5.2p26/bin:/nix/store/i7qhgc0bs725qw3wdanznfkdna4z2ns2-coreutils-9.5/bin:/nix/store/j4gkc44c1pwl5ccgxm83s4r746bsdcw9-diffutils-3.10/bin:/nix/store/rr1yixvn0z63mgq9s04ig9j9qlz23s2g-findutils-4.9.0/bin:/nix/store/gf8fvv3n09b9ww68rnlhdffv93jc2pac-gettext-0.21.1/bin:/nix/store/md9apn3290h7kv0x198ihaaa3k6icg4b-gnugrep-3.11/bin:/nix/store/ks6c62g0m3gqrs5i7m0cv6d6aqhdvirn-gnused-4.9/bin:/nix/store/d2kin53ib2ii492ql1kznjsgy85lhwdz-jq-1.7.1-bin/bin:/nix/store/qi2525fzsnmgayxba5gxc2xi3x80g99x-ncurses-6.4.20221231/bin:$(/nix/store/i7qhgc0bs725qw3wdanznfkdna4z2ns2-coreutils-9.5/bin/dirname $(/nix/store/i7qhgc0bs725qw3wdanznfkdna4z2ns2-coreutils-9.5/bin/readlink -m $(type -p nix-env)))"
+export TEXTDOMAIN=hm-modules
+export TEXTDOMAINDIR=/nix/store/0qylinvbwsiwmisq3gpm2l8mjcqlwlrg-hm-modules-messages
+source /nix/store/zhrjg6wxrxmdlpn6iapzpp2z2vylpvw5-home-manager.sh
+
+
+# Moves the existing profile from /nix or $XDG_STATE_HOME/home-manager to
+# $XDG_STATE_HOME/nix to match changed behavior in Nix 2.14. See
+# https://github.com/NixOS/nix/pull/5226.
+function migrateProfile() {
+    declare -r stateHome="${XDG_STATE_HOME:-$HOME/.local/state}"
+    declare -r userNixStateDir="$stateHome/nix"
+    declare -r hmStateDir="$stateHome/home-manager"
+
+    declare -r globalNixStateDir="${NIX_STATE_DIR:-/nix/var/nix}"
+    declare -r globalProfilesDir="$globalNixStateDir/profiles/per-user/$USER"
+
+    if [[ -e $globalProfilesDir/home-manager ]]; then
+        declare -r oldProfilesDir="$globalProfilesDir"
+    elif [[ -e $hmStateDir/profiles/home-manager ]]; then
+        declare -r oldProfilesDir="$hmStateDir/profiles"
+    fi
+
+    declare -r newProfilesDir="$userNixStateDir/profiles"
+
+    if [[ -v oldProfilesDir && -e $newProfilesDir ]]; then
+        if [[ ! -e $newProfilesDir/home-manager ]]; then
+            _i 'Migrating profile from %s to %s' "$oldProfilesDir" "$newProfilesDir"
+            for p in "$oldProfilesDir"/home-manager-*; do
+                declare name="${p##*/}"
+                nix-store --realise "$p" --add-root "$newProfilesDir/$name" > /dev/null
+            done
+            cp -P "$oldProfilesDir/home-manager" "$newProfilesDir"
+        fi
+
+        rm "$oldProfilesDir/home-manager" "$oldProfilesDir"/home-manager-*
+    fi
+}
+
+function setupVars() {
+    declare -r stateHome="${XDG_STATE_HOME:-$HOME/.local/state}"
+    declare -r userNixStateDir="$stateHome/nix"
+    declare -gr hmStatePath="$stateHome/home-manager"
+    declare -r hmGcrootsDir="$hmStatePath/gcroots"
+
+    declare -r globalNixStateDir="${NIX_STATE_DIR:-/nix/var/nix}"
+    declare -r globalProfilesDir="$globalNixStateDir/profiles/per-user/$USER"
+    declare -r globalGcrootsDir="$globalNixStateDir/gcroots/per-user/$USER"
+
+    # If the user Nix profiles path exists, then place the HM profile there.
+    # Otherwise, if the global Nix per-user state directory exists then use
+    # that. If neither exists, then we give up.
+    #
+    # shellcheck disable=2174
+    if [[ -d $userNixStateDir/profiles ]]; then
+        declare -r profilesDir="$userNixStateDir/profiles"
+    elif [[ -d $globalProfilesDir ]]; then
+        declare -r profilesDir="$globalProfilesDir"
+    else
+        _iError 'Could not find suitable profile directory, tried %s and %s' \
+                "$userNixStateDir/profiles" "$globalProfilesDir" >&2
+        exit 1
+    fi
+
+    declare -gr hmDataPath="${XDG_DATA_HOME:-$HOME/.local/share}/home-manager"
+    declare -gr genProfilePath="$profilesDir/home-manager"
+    declare -gr newGenPath="/nix/store/vnmpk1j1x2qmf9lsznll00nj6i8x1k4k-home-manager-generation";
+    declare -gr newGenGcPath="$hmGcrootsDir/current-home"
+    declare -gr legacyGenGcPath="$globalGcrootsDir/current-home"
+
+    declare greatestGenNum
+    greatestGenNum=$( \
+        nix-env --list-generations --profile "$genProfilePath" \
+            | tail -1 \
+            | sed -E 's/ *([[:digit:]]+) .*/\1/')
+
+    if [[ -n $greatestGenNum ]] ; then
+        declare -gr oldGenNum=$greatestGenNum
+        declare -gr newGenNum=$((oldGenNum + 1))
+    else
+        declare -gr newGenNum=1
+    fi
+
+    if [[ -e $genProfilePath ]] ; then
+        declare -g oldGenPath
+        oldGenPath="$(readlink -e "$genProfilePath")"
+    fi
+
+    _iVerbose "Sanity checking oldGenNum and oldGenPath"
+    if [[ -v oldGenNum && ! -v oldGenPath
+            || ! -v oldGenNum && -v oldGenPath ]]; then
+        _i $'The previous generation number and path are in conflict! These\nmust be either both empty or both set but are now set to\n\n    \'%s\' and \'%s\'\n\nIf you don\'t mind losing previous profile generations then\nthe easiest solution is probably to run\n\n   rm %s/home-manager*\n   rm %s/current-home\n\nand trying home-manager switch again. Good luck!' \
+           "${oldGenNum:-}" "${oldGenPath:-}" \
+           "$profilesDir" "$hmGcrootsDir"
+        exit 1
+    fi
+}
+
+# Helper used to list content of a `nix profile` profile.
+function nixProfileList() {
+    # We attempt to use `--json` first (added in Nix 2.17). Otherwise attempt to
+    # parse the legacy output format.
+    {
+        nix profile list --json 2>/dev/null \
+            | jq -r --arg name "$1" '.elements[].storePaths[] | select(endswith($name))'
+    } || {
+        nix profile list \
+            | { grep "$1\$" || test $? = 1; } \
+            | cut -d ' ' -f 4
+    }
+}
+
+# Helper used to remove a package from a Nix profile. Supports both `nix-env`
+# and `nix profile`.
+function nixProfileRemove() {
+    # We don't use `cfg.profileDirectory` here because it defaults to
+    # `/etc/profiles/per-user/<user>` which is constructed by NixOS or
+    # nix-darwin and won't require uninstalling `home-manager-path`.
+    if  [[ -e $HOME/.nix-profile/manifest.json \
+        || -e ${XDG_STATE_HOME:-$HOME/.local/state}/nix/profile/manifest.json ]] ; then
+        nixProfileList "$1" | xargs -rt $DRY_RUN_CMD nix profile remove $VERBOSE_ARG
+    else
+        if nix-env -q | grep -q "^$1$"; then
+            run --quiet nix-env -e "$1"
+        fi
+    fi
+}
+
+function checkUsername() {
+  local expectedUser="$1"
+
+  if [[ "$USER" != "$expectedUser" ]]; then
+    _iError 'Error: USER is set to "%s" but we expect "%s"' "$USER" "$expectedUser"
+    exit 1
+  fi
+}
+
+function checkHomeDirectory() {
+  local expectedHome="$1"
+
+  if ! [[ $HOME -ef $expectedHome ]]; then
+    _iError 'Error: HOME is set to "%s" but we expect "%s"' "$HOME" "$expectedHome"
+    exit 1
+  fi
+}
+
+# Note, the VERBOSE_ECHO variable is deprecated and should not be used inside
+# the Home Manager project. It is provided here for backwards compatibility.
+if [[ -v VERBOSE ]]; then
+    export VERBOSE_ECHO=echo
+    export VERBOSE_ARG="--verbose"
+    export VERBOSE_RUN=""
+else
+    export VERBOSE_ECHO=true
+    export VERBOSE_ARG=""
+    export VERBOSE_RUN=true
+fi
+
+_i "Starting Home Manager activation"
+
+# Verify that we can connect to the Nix store and/or daemon. This will
+# also create the necessary directories in profiles and gcroots.
+_iVerbose "Sanity checking Nix"
+nix-build --quiet --expr '{}' --no-out-link
+
+# Also make sure that the Nix profiles path is created.
+nix-env -q > /dev/null 2>&1 || true
+
+migrateProfile
+setupVars
+
+# Note, the DRY_RUN_CMD and DRY_RUN_NULL variables are deprecated and should not
+# be used inside the Home Manager project. They are provided here for backwards
+# compatibility.
+if [[ -v DRY_RUN ]] ; then
+    _i "This is a dry run"
+    export DRY_RUN_CMD=echo
+    export DRY_RUN_NULL=/dev/stdout
+else
+    _iVerbose "This is a live run"
+    export DRY_RUN_CMD=""
+    export DRY_RUN_NULL=/dev/null
+fi
+
+if [[ -v VERBOSE ]]; then
+    _i 'Using Nix version: %s' "$(nix-env --version)"
+fi
+
+_iVerbose "Activation variables:"
+if [[ -v oldGenNum ]] ; then
+    verboseEcho "  oldGenNum=$oldGenNum"
+    verboseEcho "  oldGenPath=$oldGenPath"
+else
+    verboseEcho "  oldGenNum undefined (first run?)"
+    verboseEcho "  oldGenPath undefined (first run?)"
+fi
+verboseEcho "  newGenPath=$newGenPath"
+verboseEcho "  newGenNum=$newGenNum"
+verboseEcho "  genProfilePath=$genProfilePath"
+verboseEcho "  newGenGcPath=$newGenGcPath"
+verboseEcho "  legacyGenGcPath=$legacyGenGcPath"
+
+
+if [[ ! -v SKIP_SANITY_CHECKS ]]; then
+  checkUsername 'gvolpe'
+  checkHomeDirectory '/home/gvolpe'
+fi
+
+_iNote "Activating %s" "checkFilesChanged"
+function _cmp() {
+  if [[ -d $1 && -d $2 ]]; then
+    diff -rq "$1" "$2" &> /dev/null
+  else
+    cmp --quiet "$1" "$2"
+  fi
+}
+declare -A changedFiles
+_cmp '/nix/store/wxzrizlmcjd1xm37srxlsmf63k3jgac9-hm_dunstdunstrc' '/home/gvolpe'/'.config/dunst/dunstrc' \
+  && changedFiles['.config/dunst/dunstrc']=0 \
+  || changedFiles['.config/dunst/dunstrc']=1
+_cmp '/nix/store/ly8spzx6nl02ibkmirng59gckh2f1dcg-hm_hyprhyprland.conf' '/home/gvolpe'/'.config/hypr/hyprland.conf' \
+  && changedFiles['.config/hypr/hyprland.conf']=0 \
+  || changedFiles['.config/hypr/hyprland.conf']=1
+_cmp '/nix/store/750gix7nzzgjrb574b0gvmsacnvrhvg7-waybar-config.json' '/home/gvolpe'/'.config/waybar/config' \
+  && changedFiles['.config/waybar/config']=0 \
+  || changedFiles['.config/waybar/config']=1
+_cmp '/nix/store/jqr6daambn46waqcdab34yibdhf4spmx-waybar-style.css' '/home/gvolpe'/'.config/waybar/style.css' \
+  && changedFiles['.config/waybar/style.css']=0 \
+  || changedFiles['.config/waybar/style.css']=1
+unset -f _cmp
+
+
+_iNote "Activating %s" "checkLinkTargets"
+function checkNewGenCollision() {
+  local newGenFiles
+  newGenFiles="$(readlink -e "$newGenPath/home-files")"
+  find "$newGenFiles" \( -type f -or -type l \) \
+      -exec bash /nix/store/9w867w1z0a2p7zpgrqs3mgv9823r489r-check-link-targets.sh "$newGenFiles" {} +
+}
+
+checkNewGenCollision || exit 1
+
+
+_iNote "Activating %s" "writeBoundary"
+
+
+_iNote "Activating %s" "createGpgHomedir"
+run mkdir -m700 -p $VERBOSE_ARG '/home/gvolpe/.gnupg'
+
+
+_iNote "Activating %s" "linkGeneration"
+function linkNewGen() {
+  _i "Creating home file links in %s" "$HOME"
+
+  local newGenFiles
+  newGenFiles="$(readlink -e "$newGenPath/home-files")"
+  find "$newGenFiles" \( -type f -or -type l \) \
+    -exec bash /nix/store/l154h8dfj8hfnj26v8v7qxcz688lfbic-link "$newGenFiles" {} +
+}
+
+function cleanOldGen() {
+  if [[ ! -v oldGenPath || ! -e "$oldGenPath/home-files" ]] ; then
+    return
+  fi
+
+  _i "Cleaning up orphan links from %s" "$HOME"
+
+  local newGenFiles oldGenFiles
+  newGenFiles="$(readlink -e "$newGenPath/home-files")"
+  oldGenFiles="$(readlink -e "$oldGenPath/home-files")"
+
+  # Apply the cleanup script on each leaf in the old
+  # generation. The find command below will print the
+  # relative path of the entry.
+  find "$oldGenFiles" '(' -type f -or -type l ')' -printf '%P\0' \
+    | xargs -0 bash /nix/store/bshhwjv1bkvvw0q0a5p1wzfmnpyvfckg-cleanup "$newGenFiles"
+}
+
+cleanOldGen
+
+if [[ ! -v oldGenPath || "$oldGenPath" != "$newGenPath" ]] ; then
+  _i "Creating profile generation %s" $newGenNum
+  if [[ -e "$genProfilePath"/manifest.json ]] ; then
+    # Remove all packages from "$genProfilePath"
+    # `nix profile remove '.*' --profile "$genProfilePath"` was not working, so here is a workaround:
+    nix profile list --profile "$genProfilePath" \
+      | cut -d ' ' -f 4 \
+      | xargs -rt $DRY_RUN_CMD nix profile remove $VERBOSE_ARG --profile "$genProfilePath"
+    run nix profile install $VERBOSE_ARG --profile "$genProfilePath" "$newGenPath"
+  else
+    run nix-env $VERBOSE_ARG --profile "$genProfilePath" --set "$newGenPath"
+  fi
+
+  run --quiet nix-store --realise "$newGenPath" --add-root "$newGenGcPath" --indirect
+  if [[ -e "$legacyGenGcPath" ]]; then
+    run rm $VERBOSE_ARG "$legacyGenGcPath"
+  fi
+else
+  _i "No change so reusing latest profile generation %s" "$oldGenNum"
+fi
+
+linkNewGen
+
+
+_iNote "Activating %s" "batCache"
+(
+  export XDG_CACHE_HOME='/home/gvolpe/.cache'
+  verboseEcho "Rebuilding bat theme cache"
+  cd "/nix/store/4d0ix5djms3n2jnjdc58l916cwack1rp-empty-directory"
+  run /nix/store/c69fh1xfnqvnrnqfkjw91mabyaf4rczm-bat-0.24.0/bin/bat cache --build
+)
+
+
+_iNote "Activating %s" "installPackages"
+function nixReplaceProfile() {
+  local oldNix="$(command -v nix)"
+
+  nixProfileRemove 'home-manager-path'
+
+  run $oldNix profile install $1
+}
+
+if [[ -e /home/gvolpe/.nix-profile/manifest.json ]] ; then
+  INSTALL_CMD="nix profile install"
+  INSTALL_CMD_ACTUAL="nixReplaceProfile"
+  LIST_CMD="nix profile list"
+  REMOVE_CMD_SYNTAX='nix profile remove {number | store path}'
+else
+  INSTALL_CMD="nix-env -i"
+  INSTALL_CMD_ACTUAL="run nix-env -i"
+  LIST_CMD="nix-env -q"
+  REMOVE_CMD_SYNTAX='nix-env -e {package name}'
+fi
+
+if ! $INSTALL_CMD_ACTUAL /nix/store/7kydniymv7h5ikchdlfdrk19d22s0ygp-home-manager-path ; then
+  echo
+  _iError $'Oops, Nix failed to install your new Home Manager profile!\n\nPerhaps there is a conflict with a package that was installed using\n"%s"? Try running\n\n    %s\n\nand if there is a conflicting package you can remove it with\n\n    %s\n\nThen try activating your Home Manager configuration again.' "$INSTALL_CMD" "$LIST_CMD" "$REMOVE_CMD_SYNTAX"
+  exit 1
+fi
+unset -f nixReplaceProfile
+unset INSTALL_CMD INSTALL_CMD_ACTUAL LIST_CMD REMOVE_CMD_SYNTAX
+
+
+_iNote "Activating %s" "dconfSettings"
+if [[ -v DBUS_SESSION_BUS_ADDRESS ]]; then
+  export DCONF_DBUS_RUN_SESSION=""
+else
+  export DCONF_DBUS_RUN_SESSION="/nix/store/y29cbwfiwb9nyi4db4apk9dgylzdjm1v-dbus-1.14.10/bin/dbus-run-session --dbus-daemon=/nix/store/y29cbwfiwb9nyi4db4apk9dgylzdjm1v-dbus-1.14.10/bin/dbus-daemon"
+fi
+
+if [[ -v oldGenPath ]]; then
+  /nix/store/lrabmmkg8b59n9damkny855nzbcrz76h-dconf-cleanup \
+    "$oldGenPath/state/dconf-keys.json" \
+    "$newGenPath/state/dconf-keys.json"
+fi
+
+run $DCONF_DBUS_RUN_SESSION /nix/store/l93v1f908siryjwp0s5bni3w5gz8s584-dconf-0.40.0/bin/dconf load / < /nix/store/al0fhi47jbacs2pfqkqcs9swblng7x59-hm-dconf.ini
+
+unset DCONF_DBUS_RUN_SESSION
+
+
+_iNote "Activating %s" "onFilesChange"
+if (( ${changedFiles['.config/dunst/dunstrc']} == 1 )); then
+  if [[ -v DRY_RUN || -v VERBOSE ]]; then
+    echo "Running onChange hook for" '.config/dunst/dunstrc'
+  fi
+  if [[ ! -v DRY_RUN ]]; then
+    /nix/store/nyg984s30rm0b67r5rifpzd18lhljyw2-procps-3.3.17/bin/pkill -u "$USER" ${VERBOSE+-e} dunst || true
+
+  fi
+fi
+if (( ${changedFiles['.config/hypr/hyprland.conf']} == 1 )); then
+  if [[ -v DRY_RUN || -v VERBOSE ]]; then
+    echo "Running onChange hook for" '.config/hypr/hyprland.conf'
+  fi
+  if [[ ! -v DRY_RUN ]]; then
+    (
+  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  if [[ -d "/tmp/hypr" || -d "$XDG_RUNTIME_DIR/hypr" ]]; then
+    for i in $(/nix/store/qbgkbzm1qdpski3ln4dkkr8yn6041093-hyprland-0.41.1/bin/hyprctl instances -j | jq ".[].instance" -r); do
+      /nix/store/qbgkbzm1qdpski3ln4dkkr8yn6041093-hyprland-0.41.1/bin/hyprctl -i "$i" reload config-only
+    done
+  fi
+)
+
+  fi
+fi
+if (( ${changedFiles['.config/waybar/config']} == 1 )); then
+  if [[ -v DRY_RUN || -v VERBOSE ]]; then
+    echo "Running onChange hook for" '.config/waybar/config'
+  fi
+  if [[ ! -v DRY_RUN ]]; then
+    /nix/store/nyg984s30rm0b67r5rifpzd18lhljyw2-procps-3.3.17/bin/pkill -u $USER -USR2 waybar || true
+
+  fi
+fi
+if (( ${changedFiles['.config/waybar/style.css']} == 1 )); then
+  if [[ -v DRY_RUN || -v VERBOSE ]]; then
+    echo "Running onChange hook for" '.config/waybar/style.css'
+  fi
+  if [[ ! -v DRY_RUN ]]; then
+    /nix/store/nyg984s30rm0b67r5rifpzd18lhljyw2-procps-3.3.17/bin/pkill -u $USER -USR2 waybar || true
+
+  fi
+fi
+
+
+_iNote "Activating %s" "reloadSystemd"
+systemdStatus=$(XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} /nix/store/cym39cl4v79bmbng4bvafkxagz96f4hw-systemd-255.6/bin/systemctl --user is-system-running 2>&1 || true)
+
+if [[ $systemdStatus == 'running' || $systemdStatus == 'degraded' ]]; then
+  if [[ $systemdStatus == 'degraded' ]]; then
+    warnEcho "The user systemd session is degraded:"
+    XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} /nix/store/cym39cl4v79bmbng4bvafkxagz96f4hw-systemd-255.6/bin/systemctl --user --no-pager --state=failed
+    warnEcho "Attempting to reload services anyway..."
+  fi
+
+  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)} \
+    /nix/store/3kcnyjpcq63fvq5cg37vd67qsyg9scl5-sd-switch-0.5.0/bin/sd-switch \
+  ${DRY_RUN:+--dry-run} $VERBOSE_ARG  \
+  ${oldGenPath:+--old-units $oldGenPath/home-files/.config/systemd/user} \
+  --new-units $newGenPath/home-files/.config/systemd/user
+
+else
+  echo "User systemd daemon not running. Skipping reload."
+fi
+
+unset systemdStatus
+
+
+

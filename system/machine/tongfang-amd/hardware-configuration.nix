@@ -13,9 +13,9 @@
     #(modulesPath + "/installer/scan/not-detected.nix")
   ];
 # Use the EFI boot loader.
-  boot.loader.efi.canTouchEfiVariables = true;
+  ##boot.loader.efi.canTouchEfiVariables = true;
   # depending on how you configured your disk mounts, change this to /boot or /boot/efi.
-  boot.loader.efi.efiSysMountPoint = "/boot";
+  ##boot.loader.efi.efiSysMountPoint = "/boot";
   ##boot.loader.systemd-boot.enable = true
 
   # boot.kernelPackages = pkgs.linuxPackages_latest;

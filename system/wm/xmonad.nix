@@ -39,17 +39,6 @@
         enable = true;
         enableContribAndExtras = true;
       };
-
-      xkb = {
-        extraLayouts.us-custom = {
-          description = "US layout with custom hyper keys";
-          languages = [ "eng" ];
-          symbolsFile = ./us-custom.xkb;
-        };
-
-        layout = "us";
-        options = "ctrl:nocaps";
-      };
     };
   };
 

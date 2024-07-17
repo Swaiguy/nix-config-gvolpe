@@ -34,6 +34,7 @@ in
   # networking.proxy.default = "http://user:password@proxy:port/";
   # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
 
+
    time.timeZone = "Africa/Johannesburg";
 
   # Select internationalisation properties.
@@ -53,25 +54,8 @@ in
 
   # Enable the X11 windowing system.
   # You can disable this if you're only using the Wayland session.
-  services.xserver.enable = true;
+ ## services.xserver.enable = false;
 
-  # Enable the KDE Plasma Desktop Environment.
-  services.displayManager.sddm.enable = true;
-  services.desktopManager.plasma6.enable = true;
-
-  # Configure keymap in X11
-  services.xserver = {
-    layout = "za";
-    xkbVariant = "";
-  };
-
-  users.users.kry = {
-    isNormalUser = true;
-    description = "kry";
-    extraGroups = [ "networkmanager" "wheel" ];
-  };
-
-  # Enable automatic login for the user.
   services.xserver.displayManager.autoLogin.enable = true;
   services.xserver.displayManager.autoLogin.user = "kry";
 
@@ -171,12 +155,14 @@ in
   programs.fish.enable = true;
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
-  users.users.gvolpe = {
+  users.users.kry = {
     isNormalUser = true;
     # wheel for 'sudo', uucp for bazecor to access ttyAMC0 (keyboard firmware updates)
     extraGroups = [ "docker" "networkmanager" "wheel" "scanner" "lp" "uucp" ];
     shell = pkgs.fish;
   };
+
+  users.users.kry.initialHashedPassword = "123";
 
   security = {
     # Yubikey login & sudo
@@ -233,6 +219,6 @@ in
       keep-derivations = true;
 
     };
-    };
-        system.stateVersion = "24.05";
+  };
+
 }
