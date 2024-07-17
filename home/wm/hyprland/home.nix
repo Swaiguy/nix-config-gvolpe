@@ -56,7 +56,6 @@ in
     ../../programs/pyprland
     ../../programs/waybar
     ../../services/hypridle
-    ../../wm/hyprland/nvidia.nix
   ];
 
   home = {
@@ -90,12 +89,7 @@ in
         default = [ "hyprland" ];
       };
       hyprland = {
-          nvidia = true;
-          settings = {
-          monitor = "DP-2,highres,auto,1,bitdepth,10";
-          };
-         };
-        default = [ "gtk" "hyprland" ];
+        default = [ "gtk" "hyprland"];
       };
     };
     extraPortals = with pkgs; [
