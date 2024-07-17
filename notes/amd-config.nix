@@ -2,7 +2,7 @@
 
 {
   boot = {
-    initrd.kernelModules = [ "amdgpu" ];
+    initrd.kernelModules = [ "nvidia" ];
     kernelPackages = pkgs.linuxPackages_5_8;
   };
 
@@ -31,7 +31,7 @@
       enable = true;
       layout = "us";
       libinput.enable = true;
-      videoDrivers = [ "amdgpu" ];
+      videoDrivers = [ "nvidia" ];
 
       displayManager.gdm.enable    = true;
       displayManager.gdm.wayland   = true;
@@ -40,7 +40,7 @@
   };
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
-  users.users.gvolpe = {
+  users.users.kry = {
     isNormalUser = true;
     extraGroups  = [ "docker" "networkmanager" "wheel" ]; # wheel for ‘sudo’.
     shell        = pkgs.fish;

@@ -40,6 +40,16 @@ in
   # Set your time zone.
   time.timeZone = "Europe/Warsaw";
 
+  users.users.kry = {
+    isNormalUser = true;
+    description = "kry";
+    extraGroups = [ "networkmanager" "wheel" ];
+  };
+
+  # Enable automatic login for the user.
+  services.xserver.displayManager.autoLogin.enable = true;
+  services.xserver.displayManager.autoLogin.user = "kry";
+
   # List packages installed in system profile
   environment.systemPackages = with pkgs; [
     firejail
@@ -176,7 +186,7 @@ in
       auto-optimise-store = true;
 
       # Required by Cachix to be used as non-root user
-      trusted-users = [ "root" "gvolpe" ];
+      trusted-users = [ "root" "kry" ];
 
       experimental-features = [ "nix-command" "flakes" ];
       warn-dirty = false;
