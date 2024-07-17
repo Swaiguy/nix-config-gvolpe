@@ -92,7 +92,7 @@ in
       hyprland = {
           nvidia = true;
           settings = {
-          monitor = "DP-1,highres,auto,1,bitdepth,10";
+          monitor = "DP-2,highres,auto,1,bitdepth,10";
           };
          };
         default = [ "gtk" "hyprland" ];
