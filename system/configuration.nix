@@ -56,9 +56,6 @@ in
   # You can disable this if you're only using the Wayland session.
  ## services.xserver.enable = false;
 
-  services.xserver.displayManager.autoLogin.enable = true;
-  services.xserver.displayManager.autoLogin.user = "kry";
-
   # List packages installed in system profile
   environment.systemPackages = with pkgs; [
     firejail
@@ -163,6 +160,8 @@ in
   };
 
   users.users.kry.initialHashedPassword = "123";
+  services.xserver.displayManager.autoLogin.enable = true;
+  services.xserver.displayManager.autoLogin.user = "kry";
 
   security = {
     # Yubikey login & sudo
