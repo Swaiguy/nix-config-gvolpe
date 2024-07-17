@@ -1,0 +1,113 @@
+#! /usr/bin/env bash
+
+# Shows the output of every command
+set +x
+
+activate_hm() {
+  rm ~/.config/orage/oragerc.bak
+  HOME_MANAGER_BACKUP_EXT=bak result/activate
+  hm-changes-report
+}
+
+switch_display() {
+  autorandr --change
+  systemctl --user restart polybar.service
+}
+
+rebuild_xmonad_edp() {
+  nix build .#homeConfigurations.xmonad-edp.activationPackage
+  activate_hm
+}
+
+rebuild_xmonad_hdmi() {
+  nix build .#homeConfigurations.xmonad-hdmi.activationPackage
+  activate_hm
+}
+
+rebuild_hyprland_edp() {
+  nix build .#homeConfigurations.hyprland-edp.activationPackage
+  activate_hm
+}
+
+rebuild_hyprland_hdmi() {
+  nix build .#homeConfigurations.hyprland-hdmi.activationPackage
+  activate_hm
+}
+
+rebuild_thinkpad() {
+  sudo nixos-rebuild switch --flake .#thinkpad
+}
+
+rebuild_tongfang() {
+  # nix build .#nixosConfigurations.tongfang-amd.config.system.build.toplevel
+  # sudo result/bin/switch-to-configuration switch
+  sudo nixos-rebuild switch --flake .#tongfang-amd
+}
+
+rebuild_tongfang_vm() {
+  nixos-rebuild build-vm --flake .#tongfang-amd
+}
+
+restart_X() {
+  echo "⚠️ Restarting X11 (requires authentication) ⚠️"
+  systemctl restart display-manager
+}
+
+# for fresh install only
+pre_home() {
+  echo "Creating config / cache directories..."
+
+  # Polybar logs
+  mkdir -p $HOME/.config/polybar/logs
+  touch $HOME/.config/polybar/logs/bottom.log
+  touch $HOME/.config/polybar/logs/top.log
+
+  # FZF cache
+  mkdir -p $HOME/.cache/fzf-hoogle
+  touch $HOME/.cache/fzf-hoogle/cache.json
+
+  # Desktop pic
+  mkdir -p $HOME/Pictures/
+  cp imgs/nixos.png $HOME/Pictures/
+
+  # Nix daemon config for normal user
+  mkdir -p $HOME/.config/nix
+  cp home/daemon.conf $HOME/.config/nix/nix.conf
+}
+
+post_home() {
+  # Set user's profile picture for Gnome3
+  echo "Setting profile picture for the accounts service"
+  sudo cp imgs/gvolpe.png /var/lib/AccountsService/icons/gvolpe
+  sudo echo "Icon=/var/lib/AccountsService/icons/gvolpe" >> /var/lib/AccountsService/users/gvolpe
+
+  # Set screenlock wallpaper
+  echo "Setting screen-lock wallpaper"
+  multilockscreen -u imgs/nixos.png
+}
+# end of fresh install section
+
+case $1 in
+  "xmedp")
+    rebuild_xmonad_edp;;
+  "xmhdmi")
+    rebuild_xmonad_hdmi;;
+  "hpedp")
+    rebuild_hyprland_edp;;
+  "hphdmi")
+    rebuild_hyprland_hdmi;;
+  "display")
+    switch_display;;
+  "restart-x")
+    restart_X;;
+  "update-fish")
+    fish -c fish_update_completions;;
+  "thinkpad")
+    rebuild_thinkpad;;
+  "tongfang")
+    rebuild_tongfang;;
+  "vm")
+    rebuild_tongfang_vm;;
+  *)
+    echo "Wrong argument: look at the switch script.";;
+esac
