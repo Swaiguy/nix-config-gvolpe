@@ -21,7 +21,7 @@ in
       description = "Run the user's script when you attach the monitor on Hyprland";
       homepage = "https://github.com/coffebar/hyprland-monitor-attached";
       license = licenses.mit;
-      maintainers = with maintainers; [ gvolpe ];
+      maintainers = with maintainers; [ kry ];
       platforms = platforms.linux;
     };
   };

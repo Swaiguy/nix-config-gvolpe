@@ -55,7 +55,7 @@ let
     [module/clickable-github]
     inherit = module/github
     token = ${pkgs.secrets.githubToken}
-    user = gvolpe
+    user = kry
     label = %{A1:${openGithub}:}  %notifications%%{A}
   '';
 

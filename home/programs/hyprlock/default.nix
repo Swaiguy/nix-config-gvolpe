@@ -42,7 +42,7 @@
     label {
         monitor =
         # take a screenshot of the screen lock
-        # text = cmd[update:2000] grimblast save screen > /dev/null && echo "Enter your password, gvolpe"
+        # text = cmd[update:2000] grimblast save screen > /dev/null && echo "Enter your password, kry"
         text = Enter your password, $USER
         color = rgba(200, 200, 200, 1.0)
         font_size = 25
